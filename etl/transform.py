@@ -147,7 +147,7 @@ def classify(lo, hi) -> str:
         return "high"
     if lo <= 5 and hi <= 6:
         return "elementary"
-    if lo >= 4 and 7 <= hi <= 8:
+    if lo >= 3 and 7 <= hi <= 8:
         return "middle"
     if lo >= 5 and hi <= 8:
         return "middle"
@@ -155,7 +155,7 @@ def classify(lo, hi) -> str:
         return "k8"
     if lo <= 2 and hi >= 9:
         return "k12"
-    if lo >= 5 and hi >= 9:
+    if lo >= 3 and hi >= 9:
         return "middle_high"
     return "other"
 
