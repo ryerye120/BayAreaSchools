@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+# Raw source files are large and re-fetchable; the manifest is what we track.
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/_manifest.json
