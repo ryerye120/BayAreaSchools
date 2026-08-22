@@ -7,7 +7,7 @@
 
 import sys
 
-from . import diff, extract, transform, validate
+from . import diff, extract, private, transform, validate
 
 
 def main() -> int:
@@ -24,8 +24,11 @@ def main() -> int:
             print("\nFATAL: public schools file unavailable.")
             return 2
 
-    print("\n== TRANSFORM ==")
+    print("\n== TRANSFORM (public) ==")
     transform.run()
+
+    print("\n== TRANSFORM (private) ==")
+    private.run()
 
     print("\n== VALIDATE ==")
     ok = validate.run()
