@@ -1,0 +1,124 @@
+name: Refresh school data
+
+on:
+  schedule:
+    # 06:00 UTC on the 3rd of each month (~10pm PT the 2nd). Off-peak for CDE.
+    - cron: "0 6 3 * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-download even if cached"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Extract
+        id: extract
+        run: python -m etl.extract --force
+
+      - name: Transform
+        run: python -m etl.transform
+
+      - name: Validate
+        id: validate
+        run: python -m etl.validate
+
+      - name: Diff against committed dataset
+        id: diff
+        run: |
+          python -m etl.diff
+          {
+            echo 'body<<CHANGELOG_EOF'
+            cat data/processed/_changelog.md
+            echo CHANGELOG_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet -- data/processed/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No dataset changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open pull request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: data/auto-refresh
+          delete-branch: true
+          commit-message: "data: refresh CDE school dataset"
+          title: "Data refresh — ${{ github.run_started_at }}"
+          body: |
+            Automated refresh from CDE sources.
+
+            ${{ steps.diff.outputs.body }}
+
+            ---
+            Review the diff before merging. Large swings in school count usually
+            mean a source format change, not 200 schools closing.
+          labels: data, automated
+
+      - name: Archive outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataset-${{ github.run_number }}
+          path: |
+            data/processed/
+            data/raw/_manifest.json
+          retention-days: 90
+
+      - name: Open issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = `Data refresh failed — ${new Date().toISOString().slice(0,10)}`;
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'etl-failure',
+            });
+            const body = [
+              'The scheduled data refresh failed.',
+              '',
+              `[View run](${url})`,
+              '',
+              'Most likely causes, in order:',
+              '1. CDE changed a download link — check `etl/discover.py` patterns.',
+              '2. A column was renamed — check the Changes to the Public Schools File page.',
+              '3. Validation caught bad data — read the log before overriding.',
+            ].join('\n');
+            if (existing.data.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['etl-failure', 'automated'],
+              });
+            }
