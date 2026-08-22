@@ -250,6 +250,9 @@ def run() -> pd.DataFrame:
         "is_multilingual": col(df, "Multilingual").str.upper().eq("Y"),
         "is_year_round": col(df, "YearRound").str.upper().eq("Y"),
         "virtual_code": col(df, "Virtual"),
+        # F = exclusively virtual, V = primarily virtual. These have no
+        # meaningful physical location for a family choosing a school.
+        "is_virtual": col(df, "Virtual").str.upper().isin(["F", "V"]),
         "school_type_label": df["school_type_label"],
         "is_selectable": df["is_selectable"],
         "sector": "public",
