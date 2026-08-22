@@ -40,15 +40,30 @@ def run() -> bool:
         fatal=False,
     )
 
-    geo = df[~missing_geo]
+    # Virtual schools are chartered in one county but physically addressed at a
+    # corporate HQ that can be hundreds of miles away. Their coordinates are
+    # correct and useless -- exempt them from the geography check rather than
+    # failing the build every month.
+    geo = df[~missing_geo & ~df["is_virtual"]]
     out_of_box = geo[
         (geo["latitude"] < BBOX["lat_min"]) | (geo["latitude"] > BBOX["lat_max"])
         | (geo["longitude"] < BBOX["lon_min"]) | (geo["longitude"] > BBOX["lon_max"])
     ]
-    check(len(out_of_box) == 0, f"{len(out_of_box)} schools outside the Bay Area bbox")
+    check(len(out_of_box) == 0, f"{len(out_of_box)} physical schools outside the Bay Area bbox")
     if len(out_of_box):
         print("\n  Out-of-bounds schools:")
         print(out_of_box[["name", "city", "latitude", "longitude"]].head(20).to_string(index=False))
+
+    # Virtual schools whose address sits outside the region: informational only,
+    # but they must not be rendered as map pins.
+    virtual_far = df[df["is_virtual"] & ~missing_geo & (
+        (df["latitude"] < BBOX["lat_min"]) | (df["latitude"] > BBOX["lat_max"])
+        | (df["longitude"] < BBOX["lon_min"]) | (df["longitude"] > BBOX["lon_max"])
+    )]
+    if len(virtual_far):
+        print(f"\n  {len(virtual_far)} virtual school(s) addressed outside the region "
+              f"(expected; exclude from map):")
+        print(virtual_far[["name", "district", "city"]].to_string(index=False))
 
     check(
         set(df["county"].unique()).issubset(set(BAY_AREA_COUNTIES.values())),
