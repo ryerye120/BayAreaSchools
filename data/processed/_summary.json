@@ -1,0 +1,22 @@
+{
+  "total": 1377,
+  "selectable": 1327,
+  "by_county": {
+    "Santa Clara": 309,
+    "Alameda": 300,
+    "Contra Costa": 228,
+    "Sonoma": 141,
+    "San Mateo": 139,
+    "San Francisco": 98,
+    "Solano": 73,
+    "Marin": 58,
+    "Napa": 31
+  },
+  "by_level": {
+    "elementary": 879,
+    "middle": 245,
+    "k8": 161,
+    "middle_high": 51,
+    "k12": 41
+  }
+}
