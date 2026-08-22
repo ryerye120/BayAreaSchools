@@ -29,6 +29,56 @@ DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015-"
 _DASH_RE = re.compile(f"[{DASHES}]")
 
 
+# Columns we expect from the CDE file structure doc. The live file drifts from
+# the documentation, so we look these up case-insensitively and substitute an
+# empty column when one is absent -- and say so loudly.
+EXPECTED = [
+    "CDSCode", "NCESDist", "NCESSchool", "StatusType", "County", "District",
+    "School", "Street", "City", "Zip", "Phone", "Website", "Charter", "DOC",
+    "SOC", "SOCType", "EILCode", "GSoffered", "GSserved", "Virtual", "Magnet",
+    "YearRound", "Latitude", "Longitude", "AdmFName", "AdmLName", "LastUpDate",
+    "Multilingual",
+]
+
+# Alternate spellings seen in the wild, checked before giving up on a column.
+ALIASES = {
+    "Website": ["WebSite", "Web Site", "URL", "WebAddress"],
+    "LastUpDate": ["LastUpdate", "LastUpdated"],
+    "YearRound": ["YearRoundYN"],
+    "AdmFName": ["AdmFName1"],
+    "AdmLName": ["AdmLName1"],
+}
+
+
+def col(df: pd.DataFrame, name: str) -> pd.Series:
+    """Fetch a column case-insensitively, or an empty column if it's gone."""
+    lookup = {c.strip().lower(): c for c in df.columns}
+    for candidate in [name] + ALIASES.get(name, []):
+        actual = lookup.get(candidate.strip().lower())
+        if actual is not None:
+            return df[actual].astype(str).str.strip()
+    return pd.Series([""] * len(df), index=df.index, dtype="object")
+
+
+def report_schema(df: pd.DataFrame) -> None:
+    lookup = {c.strip().lower() for c in df.columns}
+    missing = []
+    for name in EXPECTED:
+        names = [name] + ALIASES.get(name, [])
+        if not any(n.strip().lower() in lookup for n in names):
+            missing.append(name)
+    print(f"  columns in file: {len(df.columns)}")
+    if missing:
+        print(f"  !! expected but ABSENT: {', '.join(missing)}")
+        print("     (substituting empty values; check the CDE changes page)")
+    extra = [c for c in df.columns
+             if c.strip().lower() not in
+             {n.strip().lower() for e in EXPECTED for n in [e] + ALIASES.get(e, [])}]
+    if extra:
+        print(f"  ~  present but unused: {', '.join(extra[:15])}")
+    print(f"  actual header: {list(df.columns)}")
+
+
 def read_pubschls() -> pd.DataFrame:
     path = RAW / "pubschls.txt"
     last_err = None
@@ -119,20 +169,21 @@ def slugify(name: str, city: str) -> str:
 
 def run() -> pd.DataFrame:
     df = read_pubschls()
+    report_schema(df)
     report = {"raw_rows": len(df)}
 
     # --- drop district / county-office records -----------------------------
-    df = df[~df["CDSCode"].str.endswith("0000000")]
+    df = df[~col(df, "CDSCode").str.endswith("0000000")]
     report["school_records"] = len(df)
 
     # --- active only -------------------------------------------------------
-    df = df[df["StatusType"].isin(["Active", "Pending"])]
+    df = df[col(df, "StatusType").isin(["Active", "Pending"])]
     report["active_or_pending"] = len(df)
 
     # --- Bay Area ----------------------------------------------------------
-    df["county_code"] = df["CDSCode"].str[:2]
+    df["county_code"] = col(df, "CDSCode").str[:2]
     by_code = df["county_code"].isin(BAY_AREA_COUNTIES)
-    by_name = df["County"].str.strip().isin(BAY_AREA_COUNTIES.values())
+    by_name = col(df, "County").isin(BAY_AREA_COUNTIES.values())
 
     mismatch = df[by_code != by_name]
     if len(mismatch):
@@ -143,8 +194,8 @@ def run() -> pd.DataFrame:
     report["bay_area"] = len(df)
 
     # --- grade spans -------------------------------------------------------
-    served = df["GSserved"].apply(parse_span)
-    offered = df["GSoffered"].apply(parse_span)
+    served = col(df, "GSserved").apply(parse_span)
+    offered = col(df, "GSoffered").apply(parse_span)
     df["served_low"] = [s[0] for s in served]
     df["served_high"] = [s[1] for s in served]
     df["offered_low"] = [o[0] for o in offered]
@@ -158,7 +209,7 @@ def run() -> pd.DataFrame:
     )
 
     # --- K-8 filter --------------------------------------------------------
-    keeps_eil = df["EILCode"].str.strip().str.upper().isin(EIL_KEEP)
+    keeps_eil = col(df, "EILCode").str.upper().isin(EIL_KEEP)
     keeps_grades = [overlaps_k8(lo, hi) for lo, hi in zip(df["grade_low"], df["grade_high"])]
     df = df[keeps_eil | pd.Series(keeps_grades, index=df.index)]
     df = df[pd.Series([overlaps_k8(lo, hi) for lo, hi in
@@ -166,44 +217,45 @@ def run() -> pd.DataFrame:
     report["k8_overlap"] = len(df)
 
     # --- selectability -----------------------------------------------------
-    soc = df["SOC"].str.strip().str.zfill(2)
+    soc = col(df, "SOC").str.zfill(2)
     df["is_selectable"] = soc.isin(SOC_SELECTABLE)
     df["school_type_label"] = soc.map({**SOC_SELECTABLE, **SOC_NON_SELECTABLE}).fillna(
-        df["SOCType"]
+        col(df, "SOCType")
     )
     report["selectable"] = int(df["is_selectable"].sum())
 
     # --- shape the output --------------------------------------------------
     out = pd.DataFrame({
-        "cds_code": df["CDSCode"],
-        "nces_id": df["NCESDist"].str.strip() + df["NCESSchool"].str.strip(),
-        "name": df["School"].str.strip(),
-        "district": df["District"].str.strip(),
-        "county": df["County"].str.strip(),
+        "cds_code": col(df, "CDSCode"),
+        "nces_id": col(df, "NCESDist") + col(df, "NCESSchool"),
+        "name": col(df, "School"),
+        "district": col(df, "District"),
+        "county": col(df, "County"),
         "county_code": df["county_code"],
-        "street": df["Street"].str.strip(),
-        "city": df["City"].str.strip(),
-        "zip": df["Zip"].str.strip(),
-        "phone": df["Phone"].str.strip(),
-        "website": df["Website"].str.strip(),
-        "latitude": pd.to_numeric(df["Latitude"], errors="coerce"),
-        "longitude": pd.to_numeric(df["Longitude"], errors="coerce"),
+        "street": col(df, "Street"),
+        "city": col(df, "City"),
+        "zip": col(df, "Zip"),
+        "phone": col(df, "Phone"),
+        "website": col(df, "Website"),
+        "latitude": pd.to_numeric(col(df, "Latitude"), errors="coerce"),
+        "longitude": pd.to_numeric(col(df, "Longitude"), errors="coerce"),
         "grade_low": df["grade_low"],
         "grade_high": df["grade_high"],
-        "grade_span_raw": df["GSserved"].where(df["GSserved"].str.strip() != "", df["GSoffered"]),
+        "grade_span_raw": col(df, "GSserved").where(
+            col(df, "GSserved") != "", col(df, "GSoffered")),
         "grade_source": df["grade_source"],
         "level": [classify(lo, hi) for lo, hi in zip(df["grade_low"], df["grade_high"])],
-        "is_charter": df["Charter"].str.strip().str.upper().eq("Y"),
-        "is_magnet": df["Magnet"].str.strip().str.upper().eq("Y"),
-        "is_multilingual": df["Multilingual"].str.strip().str.upper().eq("Y"),
-        "is_year_round": df["YearRound"].str.strip().str.upper().eq("Y"),
-        "virtual_code": df["Virtual"].str.strip(),
+        "is_charter": col(df, "Charter").str.upper().eq("Y"),
+        "is_magnet": col(df, "Magnet").str.upper().eq("Y"),
+        "is_multilingual": col(df, "Multilingual").str.upper().eq("Y"),
+        "is_year_round": col(df, "YearRound").str.upper().eq("Y"),
+        "virtual_code": col(df, "Virtual"),
         "school_type_label": df["school_type_label"],
         "is_selectable": df["is_selectable"],
         "sector": "public",
-        "status": df["StatusType"].str.strip(),
-        "principal": (df["AdmFName"].str.strip() + " " + df["AdmLName"].str.strip()).str.strip(),
-        "last_updated": df["LastUpDate"].str.strip(),
+        "status": col(df, "StatusType"),
+        "principal": (col(df, "AdmFName") + " " + col(df, "AdmLName")).str.strip(),
+        "last_updated": col(df, "LastUpDate"),
     })
 
     out["slug"] = [slugify(n, c) for n, c in zip(out["name"], out["city"])]
