@@ -30,7 +30,10 @@ DISCOVERY = {
     },
     "caaspp_sb": {
         "index": "https://caaspp-elpac.ets.org/caaspp/ResearchFileListSB",
-        "href_re": r"sb_ca\d{4}.*\.zip$",
+        # Must be the statewide "all student groups" CSV bundle. Without
+        # `_all_` this matches Access-database partials, which are useless
+        # to us and were what the first real run actually downloaded.
+        "href_re": r"sb_ca\d{4}_all_csv.*\.zip$",
         "text_re": r".*",
         "fallback": None,
     },
