@@ -35,8 +35,20 @@ jobs:
         id: extract
         run: python -m etl.extract --force
 
-      - name: Transform
+      - name: Transform (public)
         run: python -m etl.transform
+
+      - name: Transform (private)
+        # Reads data/raw/privateschools.xlsx, which is committed because CDE
+        # only offers it as a session-generated export. Skips cleanly if absent.
+        run: python -m etl.private
+
+      - name: List outputs
+        # Cheap insurance: if data/processed is empty the artifact is useless
+        # and we want to know that here, not three messages later.
+        run: |
+          echo "data/processed contents:"
+          ls -la data/processed/ || echo "  (directory does not exist)"
 
       - name: Validate
         id: validate
@@ -68,6 +80,20 @@ jobs:
             git status --short -- data/processed/
           fi
 
+      - name: Archive outputs
+        # MUST run before the PR step: create-pull-request commits the
+        # outputs to a branch and then restores the working tree to the
+        # base commit, deleting untracked files. Archiving after it
+        # produces an empty artifact.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dataset-${{ github.run_number }}
+          path: |
+            data/processed/
+            data/raw/_manifest.json
+          retention-days: 90
+
       - name: Open pull request
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
@@ -86,16 +112,6 @@ jobs:
             Review the diff before merging. Large swings in school count usually
             mean a source format change, not 200 schools closing.
           labels: data, automated
-
-      - name: Archive outputs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dataset-${{ github.run_number }}
-          path: |
-            data/processed/
-            data/raw/_manifest.json
-          retention-days: 90
 
       - name: Open issue on failure
         if: failure()
