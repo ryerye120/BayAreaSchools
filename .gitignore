@@ -4,3 +4,6 @@ __pycache__/
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/_manifest.json
+# Exception: the private-school workbook can't be auto-downloaded (session-
+# generated export), so CI has no way to get it. 419KB, updated annually.
+!data/raw/privateschools.xlsx
