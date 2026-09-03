@@ -1,0 +1,11 @@
+{
+  "raw_rows": 2995,
+  "cds_padded": 273,
+  "bay_area": 736,
+  "k8_relevant": 664,
+  "by_shape": {
+    "established": 486,
+    "micro": 129,
+    "homeschool_shaped": 49
+  }
+}
